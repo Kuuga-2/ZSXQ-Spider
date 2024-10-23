@@ -28,12 +28,12 @@ HTML_TEMPLATE = """
 
 
 class Spider:
-    ZSXQ_ACCESS_TOKEN = ''          # 登录后Cookie中的Token（必须修改）
+    ZSXQ_COOKIE = ''          # 登录后Cookie中的Token（必须修改）
     USER_AGENT = ''                 # 登录时使用的User-Agent（必须修改）
     GROUP_ID = ''                   # 知识星球中的小组ID
     PDF_FILE_NAME = 'output'        # 生成的PDF文件名，不带后缀
     PDF_MAX_PAGE_NUM = 500          # 单个PDF文件最大的页面数。windows下超过一定数量的页面会生成失败，所以需要调整此值
-    DOWNLOAD_PICS = True            # 是否下载图片 True | False ;下载会导致程序变慢
+    DOWNLOAD_PICS = False            # 是否下载图片 True | False ;下载会导致程序变慢
     DOWNLOAD_COMMENTS = True        # 是否下载评论
     ONLY_DIGESTS = False            # True-只精华 | False-全部
     FROM_DATE_TO_DATE = False       # 按时间区间下载
@@ -41,7 +41,7 @@ class Spider:
     LATE_DATE = ''                  # 最晚时间 当FROM_DATE_TO_DATE=True时生效 为空表示不限制 形如'2017-05-25T00:00:00.000+0800'
     COUNTS_PER = 30                 # 每次请求加载几个主题 最大可设置为30
     DEBUG = False                   # DEBUG开关
-    DEBUG_NUM = 120                 # DEBUG时 跑多少条数据后停止 需与COUNTS_PER结合考虑
+    DEBUG_NUM = 10                 # DEBUG时 跑多少条数据后停止 需与COUNTS_PER结合考虑
     SLEEP_FLAG = True               # 请求之间是否SLEEP避免请求过于频繁
     SLEEP_SEC = 5                   # SLEEP秒数 SLEEP_FLAG=True时生效
 
@@ -56,12 +56,12 @@ class Spider:
     headers = {}
     pdf_options = None
 
-    def __init__(self, access_token=None, user_agent=None, group_id=None):
-        self.ZSXQ_ACCESS_TOKEN = access_token or self.ZSXQ_ACCESS_TOKEN
+    def __init__(self, cookie=None, user_agent=None, group_id=None):
+        self.ZSXQ_COOKIE = cookie or self.ZSXQ_COOKIE
         self.USER_AGENT = user_agent or self.USER_AGENT
         self.GROUP_ID = group_id or self.GROUP_ID
         self.headers = {
-            'Cookie': 'abtest_env=product;zsxq_access_token=' + self.ZSXQ_ACCESS_TOKEN,
+            'Cookie': self.ZSXQ_COOKIE,
             'User-Agent': self.USER_AGENT,
             'accept': 'application/json, text/plain, */*',
             'sec-ch-ua-platform': '"Windows"',
@@ -358,6 +358,6 @@ class Spider:
 
 
 if __name__ == '__main__':
-    _ = Spider('登录后Cookie中的Token', '登录时使用的User-Agent', '知识星球中的小组ID')
+    _ = Spider('登录后的Cookie', '登录时使用的User-Agent', '知识星球中的小组ID')
     _.run()
     # _.regenerate_pdf('2022-02-01.000000')

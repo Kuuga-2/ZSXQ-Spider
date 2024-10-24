@@ -241,7 +241,8 @@ class Spider:
         rsp_data = self.get_url_data(url)
         columns = rsp_data.get('columns')
         self.save_json('data', 'columns', columns)
-        # test columns = [columns[16]]
+        # test
+        # columns = [columns[2]]
         for column in columns:
             column_name = column.get('name')
             column_topic_url = f'https://api.zsxq.com/v2/groups/{self.GROUP_ID}/columns/{column.get('column_id')}/topics?count=100&sort=default&direction=desc'
@@ -252,25 +253,36 @@ class Spider:
             column_path = os.path.join(self.output_dir, column_name)
             os.mkdir(column_path)
             columns_pdf = []
-            for topic_index in topics:
+            for topic_i,topic_index in enumerate(topics):
                 topic_url = f'https://api.zsxq.com/v2/topics/{topic_index.get('topic_id')}/info'
-                print(f'{self.GROUP_NAME}-{column_name}-{topic_index.get('title')}', column_topic_url)
                 topic_info = self.get_url_data(topic_url)
                 topic = topic_info.get('topic')
-                topic_name = topic.get('title')
+                topic_name = topic.get('title') or str(topic_i)
+                print(f'{self.GROUP_NAME}-{column_name}-{topic_name}', topic_url)
                 # topic_path = os.path.join(column_path, topic_name)
                 # os.mkdir(topic_path)
                 self.save_json(column_path, topic_name, topic_info)
 
                 # 抓数据
-                topic_talk = topic.get('talk')
-                topic_author = topic_talk.get('owner').get('name')
                 cretime = (topic.get('create_time')[:23]).replace('T', ' ')
                 cretime = cretime[:16]
-                topic_text = topic_talk.get('text', '')
-                topic_text = self.handle_link(topic_text)
-                topic_article = topic_talk.get('article')
-                html = HTML_TEMPLATE.format(title=topic_name, text=topic_text, author=topic_author, cretime=cretime)
+                topic_talk = topic.get('talk')
+                topic_question = topic.get('talk')
+
+                if topic_talk:
+                    topic_author = topic_talk.get('owner').get('name')
+                    topic_text = topic_talk.get('text', '')
+                    topic_text = self.handle_link(topic_text)
+                    html = HTML_TEMPLATE.format(title=topic_name, text=topic_text, author=topic_author, cretime=cretime)
+                elif topic_question:
+                    topic_answer = topic.get('answer')
+                    topic_title = '[问]' + topic_question.get('text')
+                    topic_author = topic_question.get('owner').get('name') + ('&' + topic_answer.get('owner').get('name')) if topic_answer else ''
+                    topic_text = topic_answer.get('text') or '无'
+                    topic_text = self.handle_link(topic_text)
+                    html = HTML_TEMPLATE.format(title=topic_title, text=topic_text, author=topic_author, cretime=cretime)
+
+                topic_article = topic_talk.get('article') if topic_talk else None
                 article_file_name = ''
                 if topic_article :
                     topic_article_title = topic_article.get('title')
@@ -430,6 +442,7 @@ class Spider:
         return file_name
 
     def save_topic_html(self, path, name, data):
+        name = name.replace('/', '')
         file_name = os.path.join(path, f'{name}.html')
         with open(file_name, 'w+', encoding='utf-8') as f:
             f.write(data)
@@ -441,6 +454,7 @@ class Spider:
             f.write(url + json.dumps(data, indent=2, ensure_ascii=False))
 
     def save_json(self, path, name, data, url=None):
+        name = name.replace('/','')
         url = f'# {url}\n\n' if url else ''
         with open(os.path.join(os.path.join(self.output_dir, path), f'{name}.json'), 'w+', encoding='utf-8') as f:
             f.write(url + json.dumps(data, indent=2, ensure_ascii=False))
@@ -483,6 +497,6 @@ class Spider:
 
 
 if __name__ == '__main__':
-    _ = Spider('zsxqsessionid=3418d2bcb7bcde4db12c9ef9e8a6b0bf;sensorsdata2015jssdkcross=%7B%22distinct_id%22%3A%2219270bbc898581-03164390783d3e4-16525637-1764000-19270bbc899976%22%2C%22first_id%22%3A%22%22%2C%22props%22%3A%7B%22%24latest_traffic_source_type%22%3A%22%E5%BC%95%E8%8D%90%E6%B5%81%E9%87%8F%22%2C%22%24latest_search_keyword%22%3A%22%E6%9C%AA%E5%8F%96%E5%88%B0%E5%80%BC%22%2C%22%24latest_referrer%22%3A%22https%3A%2F%2Fwww.youtube.com%2F%22%7D%2C%22identities%22%3A%22eyIkaWRlbnRpdHlfY29va2llX2lkIjoiMTkyNzBiYmM4OTg1ODEtMDMxNjQzOTA3ODNkM2U0LTE2NTI1NjM3LTE3NjQwMDAtMTkyNzBiYmM4OTk5NzYifQ%3D%3D%22%2C%22history_login_id%22%3A%7B%22name%22%3A%22%22%2C%22value%22%3A%22%22%7D%2C%22%24device_id%22%3A%2219270bbc898581-03164390783d3e4-16525637-1764000-19270bbc899976%22%7D; zsxq_access_token=98AF2779-A509-5F4D-AF32-B04BF1C26142_74A412446FFA9DEA; abtest_env=product', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36', '28858522245151', '英雄联盟算法')
+    _ = Spider('cookie', 'ua', '星球 id', ' 星球 name')
     _.run()
     # _.regenerate_pdf('2022-02-01.000000')

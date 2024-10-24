@@ -28,22 +28,24 @@ HTML_TEMPLATE = """
 
 
 class Spider:
-    ZSXQ_COOKIE = ''          # 登录后Cookie中的Token（必须修改）
+    ZSXQ_COOKIE = ''                # 登录后Cookie中的Token（必须修改）
     USER_AGENT = ''                 # 登录时使用的User-Agent（必须修改）
-    GROUP_ID = ''                   # 知识星球中的小组ID
-    PDF_FILE_NAME = 'output'        # 生成的PDF文件名，不带后缀
+    GROUP_ID = ''                   # 知识星球中的小组ID           # 登录时使用的User-Agent（必须修改）
+    GROUP_NAME = ''                 # 知识星球名字
     PDF_MAX_PAGE_NUM = 500          # 单个PDF文件最大的页面数。windows下超过一定数量的页面会生成失败，所以需要调整此值
     DOWNLOAD_PICS = False            # 是否下载图片 True | False ;下载会导致程序变慢
     DOWNLOAD_COMMENTS = True        # 是否下载评论
-    ONLY_DIGESTS = False            # True-只精华 | False-全部
+    TYPE = 'column'                 # all全部 digest精华 column专栏
     FROM_DATE_TO_DATE = False       # 按时间区间下载
     EARLY_DATE = ''                 # 最早时间 当FROM_DATE_TO_DATE=True时生效 为空表示不限制 形如'2017-05-25T00:00:00.000+0800'
     LATE_DATE = ''                  # 最晚时间 当FROM_DATE_TO_DATE=True时生效 为空表示不限制 形如'2017-05-25T00:00:00.000+0800'
     COUNTS_PER = 30                 # 每次请求加载几个主题 最大可设置为30
     DEBUG = False                   # DEBUG开关
-    DEBUG_NUM = 10                 # DEBUG时 跑多少条数据后停止 需与COUNTS_PER结合考虑
+    DEBUG_NUM = 10                  # DEBUG时 跑多少条数据后停止 需与COUNTS_PER结合考虑
     SLEEP_FLAG = True               # 请求之间是否SLEEP避免请求过于频繁
     SLEEP_SEC = 5                   # SLEEP秒数 SLEEP_FLAG=True时生效
+    CSS_DIR = '../../'              # article css的文件夹
+    INLINE = True                  # article css的文件夹
 
     OVER_DATE_BREAK = False
     htmls_file = []
@@ -56,10 +58,11 @@ class Spider:
     headers = {}
     pdf_options = None
 
-    def __init__(self, cookie=None, user_agent=None, group_id=None):
+    def __init__(self, cookie=None, user_agent=None, group_id=None, group_name=None):
         self.ZSXQ_COOKIE = cookie or self.ZSXQ_COOKIE
         self.USER_AGENT = user_agent or self.USER_AGENT
         self.GROUP_ID = group_id or self.GROUP_ID
+        self.GROUP_NAME = group_name or self.GROUP_ID
         self.headers = {
             'Cookie': self.ZSXQ_COOKIE,
             'User-Agent': self.USER_AGENT,
@@ -98,6 +101,13 @@ class Spider:
             raise Exception('访问错误：\n' + json.dumps(rsp_data, indent=2, ensure_ascii=False))
         else:
             return rsp_data.get('resp_data')
+
+    def get_article_data(self, url):
+        rsp = requests.get(url, headers=self.headers)
+        if rsp.status_code == 200:
+            return rsp.text
+        else:
+            raise Exception('访问错误：\n' + json.dumps("获取文章"+url, indent=2, ensure_ascii=False))
 
     def get_data(self, url):
         rsp_data = self.get_url_data(url)
@@ -227,6 +237,90 @@ class Spider:
 
         return self.htmls_file
 
+    def get_column_data(self, url):
+        rsp_data = self.get_url_data(url)
+        columns = rsp_data.get('columns')
+        self.save_json('data', 'columns', columns)
+        # test columns = [columns[16]]
+        for column in columns:
+            column_name = column.get('name')
+            column_topic_url = f'https://api.zsxq.com/v2/groups/{self.GROUP_ID}/columns/{column.get('column_id')}/topics?count=100&sort=default&direction=desc'
+            print(f'{self.GROUP_NAME}-{column_name}-topics',column_topic_url)
+            column_topics = self.get_url_data(column_topic_url)
+            topics = column_topics.get('topics')
+            self.save_json('data', f"columns_{column_name}", topics)
+            column_path = os.path.join(self.output_dir, column_name)
+            os.mkdir(column_path)
+            columns_pdf = []
+            for topic_index in topics:
+                topic_url = f'https://api.zsxq.com/v2/topics/{topic_index.get('topic_id')}/info'
+                print(f'{self.GROUP_NAME}-{column_name}-{topic_index.get('title')}', column_topic_url)
+                topic_info = self.get_url_data(topic_url)
+                topic = topic_info.get('topic')
+                topic_name = topic.get('title')
+                # topic_path = os.path.join(column_path, topic_name)
+                # os.mkdir(topic_path)
+                self.save_json(column_path, topic_name, topic_info)
+
+                # 抓数据
+                topic_talk = topic.get('talk')
+                topic_author = topic_talk.get('owner').get('name')
+                cretime = (topic.get('create_time')[:23]).replace('T', ' ')
+                cretime = cretime[:16]
+                topic_text = topic_talk.get('text', '')
+                topic_text = self.handle_link(topic_text)
+                topic_article = topic_talk.get('article')
+                html = HTML_TEMPLATE.format(title=topic_name, text=topic_text, author=topic_author, cretime=cretime)
+                article_file_name = ''
+                if topic_article :
+                    topic_article_title = topic_article.get('title')
+                    if(self.INLINE):
+                        topic_article_url = topic_article.get('inline_article_url')
+                        topic_article_html = self.get_article_data(topic_article_url)
+                        topic_article_html = topic_article_html.replace('/css/', self.CSS_DIR + 'css/')
+                        topic_article_html = topic_article_html.replace('/js/', self.CSS_DIR + 'js/')
+                    else :
+                        topic_article_url = topic_article.get('article_url')
+                        topic_article_html = self.get_article_data(topic_article_url)
+                        topic_article_html = topic_article_html.replace('./css/', self.CSS_DIR + 'css/')
+                        topic_article_html = topic_article_html.replace('/js/', self.CSS_DIR + 'js/')
+                        topic_article_html = topic_article_html.replace('.../', '../')
+                        topic_article_html = topic_article_html.replace('/assets_dweb/', self.CSS_DIR + '/assets_dweb/')
+                    soup = BeautifulSoup(html, 'html.parser')
+                    hr_tag = soup.new_tag('hr')
+                    soup.body.append(hr_tag)
+                    a_tag = soup.new_tag("a", href=f"./{topic_name}-{topic_article_title}.html")
+                    a_tag.string = f"文章: {topic_article_title}({topic_article_url})"
+                    soup.body.append(a_tag)
+                    html = str(soup)
+                    article_file_name = self.save_topic_html(column_path, f"{topic_name} && {topic_article_title}", topic_article_html)
+
+                comments = topic.get('show_comments')
+                if self.DOWNLOAD_COMMENTS and comments:
+                    soup = BeautifulSoup(html, 'html.parser')
+                    hr_tag = soup.new_tag('hr')
+                    soup.body.append(hr_tag)
+                    for comment in comments:
+                        if comment.get('repliee'):
+                            comment_str = '[' + comment.get('owner').get('name') + ' 回复 ' + comment.get(
+                                'repliee').get('name') + '] : ' + self.handle_link(comment.get('text'))
+                        else:
+                            comment_str = '[' + comment.get('owner').get('name') + '] : ' + self.handle_link(
+                                comment.get('text'))
+
+                        comment_tag = soup.new_tag('p')
+                        soup_temp = BeautifulSoup(comment_str, 'html.parser')
+                        comment_tag.append(soup_temp)
+                        soup.body.append(comment_tag)
+                    html = str(soup)
+
+                file_name = self.save_topic_html(column_path, topic_name, html)
+                columns_pdf.append(file_name)
+                if article_file_name:
+                    columns_pdf.append(article_file_name)
+            self._make_columns_pdf(column_path, column_name, columns_pdf)
+        return
+
     def encode_image(self, image_url):
         with open(image_url, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read())
@@ -281,7 +375,21 @@ class Spider:
         self.pdf_options['user-style-sheet'] = str(self.get_dir_path('temp.css'))
         try:
             for i, files in enumerate(html_files, start=1):
-                pdfkit.from_file(files, os.path.join(self.output_dir, f'{self.PDF_FILE_NAME}_{i}.pdf'), options=self.pdf_options, verbose=True)
+                pdfkit.from_file(files, os.path.join(self.output_dir, f'{self.GROUP_NAME}_{i}.pdf'), options=self.pdf_options, verbose=True)
+            print("电子书生成成功！")
+        except Exception as e:
+            print("电子书生成失败：\n" + traceback.format_exc())
+
+    def _make_columns_pdf(self, path, name, html_files):
+        if len(html_files) > self.PDF_MAX_PAGE_NUM:
+            _html_files = html_files
+            html_files = [_html_files[i:i + self.PDF_MAX_PAGE_NUM] for i in range(0, len(_html_files), self.PDF_MAX_PAGE_NUM)]
+        else:
+            html_files = [html_files]
+        self.pdf_options['user-style-sheet'] = str(self.get_dir_path('temp.css'))
+        try:
+            for i, files in enumerate(html_files, start=1):
+                pdfkit.from_file(files, os.path.join(path, f'{name}.pdf'), options=self.pdf_options, verbose=True)
             print("电子书生成成功！")
         except Exception as e:
             print("电子书生成失败：\n" + traceback.format_exc())
@@ -310,7 +418,7 @@ class Spider:
                 with open(i, 'r+', encoding='utf-8') as fr:
                     f.write(fr.read() + '\n\n')
         try:
-            pdfkit.from_file(single_html, os.path.join(output_dir, self.PDF_FILE_NAME + '.pdf'), options=self.pdf_options, css=self.get_dir_path('temp.css'), verbose=True)
+            pdfkit.from_file(single_html, os.path.join(output_dir, self.GROUP_NAME + '.pdf'), options=self.pdf_options, css=self.get_dir_path('temp.css'), verbose=True)
             print("电子书生成成功！")
         except Exception as e:
             print("电子书生成失败：\n" + traceback.format_exc())
@@ -321,30 +429,44 @@ class Spider:
             f.write(data)
         return file_name
 
+    def save_topic_html(self, path, name, data):
+        file_name = os.path.join(path, f'{name}.html')
+        with open(file_name, 'w+', encoding='utf-8') as f:
+            f.write(data)
+        return file_name
+
     def save_data_json(self, counts_per, num, data, url=None):
         url = f'# {url}\n\n' if url else ''
         with open(os.path.join(self.data_output_dir, f'{num}_{counts_per}.json'), 'w+', encoding='utf-8') as f:
+            f.write(url + json.dumps(data, indent=2, ensure_ascii=False))
+
+    def save_json(self, path, name, data, url=None):
+        url = f'# {url}\n\n' if url else ''
+        with open(os.path.join(os.path.join(self.output_dir, path), f'{name}.json'), 'w+', encoding='utf-8') as f:
             f.write(url + json.dumps(data, indent=2, ensure_ascii=False))
 
     def get_dir_path(self, *paths):
         return os.path.join(BASE_DIR, *paths)
 
     def mkdir(self):
-        self.output_dir = self.get_dir_path(time.strftime("%Y-%m-%d.%H%M%S", time.localtime()))
-        self.html_output_dir = os.path.join(self.output_dir, 'html')
-        self.image_output_dir = os.path.join(self.output_dir, 'image')
-        self.data_output_dir = os.path.join(self.output_dir, 'data')
+        self.output_dir = self.get_dir_path(self.GROUP_NAME + '-' + time.strftime("%Y-%m-%d.%H%M", time.localtime()))
         os.mkdir(self.output_dir)
-        os.mkdir(self.html_output_dir)
-        os.mkdir(self.image_output_dir)
+        self.data_output_dir = os.path.join(self.output_dir, 'data')
         os.mkdir(self.data_output_dir)
+        if(self.TYPE != 'column'):
+            self.html_output_dir = os.path.join(self.output_dir, 'html')
+            self.image_output_dir = os.path.join(self.output_dir, 'image')
+            os.mkdir(self.html_output_dir)
+            os.mkdir(self.image_output_dir)
 
     def run(self):
         self.htmls_file = []
         self.num = 1
         self.mkdir()
-        if self.ONLY_DIGESTS:
+        if self.TYPE == 'digest':
             self.start_url = 'https://api.zsxq.com/v2/groups/' + self.GROUP_ID + '/topics?scope=digests&count=' + str(self.COUNTS_PER)
+        elif self.TYPE == 'column':
+            self.start_url = 'https://api.zsxq.com/v2/groups/'+ self.GROUP_ID + '/columns'
         else:
             self.start_url = 'https://api.zsxq.com/v2/groups/' + self.GROUP_ID + '/topics?scope=all&count=' + str(self.COUNTS_PER)
 
@@ -352,12 +474,15 @@ class Spider:
         if self.FROM_DATE_TO_DATE and self.LATE_DATE.strip():
             url = self.start_url + '&end_time=' + quote(self.LATE_DATE.strip())
         print(f'Start Url: {url}')
-        self.get_data(url)
-        print(f'Generating PDF...')
-        self.generate_pdf(self.htmls_file)
+        if self.TYPE == 'column':
+            self.get_column_data(url)
+        else:
+            self.get_data(url)
+            print(f'Generating PDF...')
+            self.generate_pdf(self.htmls_file)
 
 
 if __name__ == '__main__':
-    _ = Spider('登录后的Cookie', '登录时使用的User-Agent', '知识星球中的小组ID')
+    _ = Spider('zsxqsessionid=3418d2bcb7bcde4db12c9ef9e8a6b0bf;sensorsdata2015jssdkcross=%7B%22distinct_id%22%3A%2219270bbc898581-03164390783d3e4-16525637-1764000-19270bbc899976%22%2C%22first_id%22%3A%22%22%2C%22props%22%3A%7B%22%24latest_traffic_source_type%22%3A%22%E5%BC%95%E8%8D%90%E6%B5%81%E9%87%8F%22%2C%22%24latest_search_keyword%22%3A%22%E6%9C%AA%E5%8F%96%E5%88%B0%E5%80%BC%22%2C%22%24latest_referrer%22%3A%22https%3A%2F%2Fwww.youtube.com%2F%22%7D%2C%22identities%22%3A%22eyIkaWRlbnRpdHlfY29va2llX2lkIjoiMTkyNzBiYmM4OTg1ODEtMDMxNjQzOTA3ODNkM2U0LTE2NTI1NjM3LTE3NjQwMDAtMTkyNzBiYmM4OTk5NzYifQ%3D%3D%22%2C%22history_login_id%22%3A%7B%22name%22%3A%22%22%2C%22value%22%3A%22%22%7D%2C%22%24device_id%22%3A%2219270bbc898581-03164390783d3e4-16525637-1764000-19270bbc899976%22%7D; zsxq_access_token=98AF2779-A509-5F4D-AF32-B04BF1C26142_74A412446FFA9DEA; abtest_env=product', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36', '28858522245151', '英雄联盟算法')
     _.run()
     # _.regenerate_pdf('2022-02-01.000000')
